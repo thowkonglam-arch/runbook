@@ -211,14 +211,25 @@ select.fi option{background:var(--panel)}
 .ctable tr:hover td,.rtable tr:hover td{background:var(--hover)}
 .ctable a{color:var(--accent);text-decoration:none}.ctable a:hover{text-decoration:underline}
 .cg-pill{display:inline-block;font-size:8px;font-weight:600;padding:1px 5px;border-radius:3px;background:var(--accentg);color:var(--accent);margin:1px 2px 1px 0}
-.rtable{width:100%;border-collapse:collapse;font-size:11px}
-.rtable th{background:var(--panel);border:1px solid var(--border);padding:7px 10px;font-family:var(--fn-mono);font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--txtm);text-align:left;position:sticky;top:0;z-index:5}
-.rtable td{border:1px solid var(--borderlt);padding:6px 10px;vertical-align:middle}
-.rtable tr{cursor:pointer;transition:background .1s}
-.rtable tr.rsel td{background:rgba(37,99,235,.07)}
-.tl-bar{height:14px;position:relative;background:var(--surface);border-radius:3px;overflow:hidden;min-width:160px}
-.tl-seg{position:absolute;height:100%;border-radius:2px}
-.tl-seg:hover{filter:brightness(1.15)}
+/* Roster split-pane */
+.r-lrow{height:34px;border-bottom:1px solid var(--borderlt);display:flex;flex-direction:column;justify-content:center;padding:0 10px;cursor:pointer;transition:background .1s;overflow:hidden}
+.r-lrow:hover{background:var(--hover)}
+.r-lrow.rsel{background:rgba(37,99,235,.07);border-left:3px solid var(--accent)}
+.rn{font-size:11px;font-weight:500;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rl{font-size:9px;color:var(--txtm);margin-top:1px}
+.r-rrow{height:34px;border-bottom:1px solid var(--borderlt);cursor:pointer;transition:background .1s;overflow:hidden;position:relative}
+.r-rrow:hover{background:rgba(37,99,235,.03)}
+.r-rrow.rsel{background:rgba(37,99,235,.06)}
+/* Ruler */
+.rul-day{position:absolute;top:0;height:100%;border-left:1px solid var(--borderlt);display:flex;flex-direction:column;justify-content:flex-end;padding-bottom:4px;overflow:hidden}
+.rul-day.rul-ms{border-left-color:var(--border)}
+.rul-day-lbl{font-family:var(--fn-mono);font-size:8px;color:var(--txtm);padding-left:3px;white-space:nowrap;overflow:hidden}
+.rul-day-lbl.rul-ms{font-weight:700;color:var(--txt2);font-size:9px}
+.rul-now{position:absolute;top:0;bottom:0;width:2px;background:var(--green);z-index:20;pointer-events:none}
+.rul-now::before{content:'NOW';position:absolute;top:3px;left:4px;font-family:var(--fn-mono);font-size:7px;font-weight:700;color:var(--green);letter-spacing:.08em}
+/* Timeline bars */
+.tl-seg{position:absolute;top:50%;transform:translateY(-50%);height:18px;border-radius:2px;cursor:pointer}
+.tl-seg:hover{filter:brightness(1.12);z-index:5}
 .tl-onsite{background:#0070C0}
 .tl-oncall{background:#00B0F0}
 .tl-pgls{background:#FFC000}
@@ -408,9 +419,26 @@ select.fi option{background:var(--panel)}
     <div class="rd-legend"><span><span class="ld-dot" style="background:#0070C0"></span>Onsite/Office</span>      <span><span class="ld-dot" style="background:#00B0F0"></span>On-Call</span>      <span><span class="ld-dot" style="background:#FFC000"></span>PGLS</span></div>
   </div>
   <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
-    <div style="flex:1;overflow-y:auto;padding:14px">
-      <table class="rtable"><thead><tr><th>Name</th><th>Location</th><th>Roster Timeline (click for detail)</th></tr></thead>
-      <tbody id="r-tbody"></tbody></table>
+    <!-- Roster split-pane: fixed left labels + scrollable timeline -->
+    <div style="flex:1;display:flex;overflow:hidden">
+      <!-- Left: name + location fixed -->
+      <div id="r-left" style="width:220px;flex-shrink:0;display:flex;flex-direction:column;border-right:2px solid var(--border);background:var(--surface)">
+        <div id="r-left-hdr" style="height:48px;background:var(--panel);border-bottom:2px solid var(--border);display:flex;align-items:flex-end;padding:0 10px 8px;flex-shrink:0">
+          <span style="font-family:var(--fn-mono);font-size:9px;font-weight:600;color:var(--txtm);text-transform:uppercase;letter-spacing:.08em">Name / Location</span>
+        </div>
+        <div id="r-left-body" style="overflow-y:auto;overflow-x:hidden;flex:1"></div>
+      </div>
+      <!-- Right: scrollable timeline with ruler -->
+      <div id="r-right" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+        <!-- Timeline ruler header -->
+        <div id="r-ruler-wrap" style="height:48px;overflow:hidden;flex-shrink:0;background:var(--panel);border-bottom:2px solid var(--border);position:relative">
+          <div id="r-ruler" style="height:100%;position:relative;white-space:nowrap"></div>
+        </div>
+        <!-- Scrollable rows -->
+        <div id="r-scroll" style="flex:1;overflow:auto" onscroll="syncRosterScroll(this)">
+          <div id="r-right-body" style="position:relative"></div>
+        </div>
+      </div>
     </div>
     <div id="roster-drawer">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -10121,28 +10149,74 @@ function renderContacts() {
 
 // ── ROSTER ──
 var _rFil = [];
-var TL_START = new Date('2026-04-10T18:00:00');
-var TL_END   = new Date('2026-05-13T23:00:00');
-var TL_MS    = TL_END - TL_START;
+var TL_START   = new Date('2026-04-10T18:00:00');
+var TL_END     = new Date('2026-05-14T00:00:00');
+var TL_MS      = TL_END - TL_START;
+var PX_PER_HR  = 20;
 
+function tlTotalPx()  { return Math.ceil(TL_MS / 3600000) * PX_PER_HR; }
+function tlPx(dt)     { return Math.max(0, (new Date(dt) - TL_START) / 3600000 * PX_PER_HR); }
 function modeClass(m) { return m==='Onsite'?'tl-onsite':m==='On-Call'?'tl-oncall':'tl-pgls'; }
 function modeBadge(m) {
   var cls = m==='Onsite'?'mode-onsite':m==='On-Call'?'mode-oncall':'mode-pgls';
   return '<span class="'+cls+'">'+esc(m)+'</span>';
 }
-function fmtHr(ms) { var h=Math.round(ms/3600000); return h+'h'; }
+function fmtHr(ms) { return Math.round(ms/3600000)+'h'; }
 
-function miniTimeline(segs) {
-  if (!segs||!segs.length) return '<span style="color:var(--txtm);font-size:10px">No roster data</span>';
-  var bars = segs.map(function(s) {
-    var s0=new Date(s.start), s1=new Date(s.end);
-    var left=Math.max(0,(s0-TL_START)/TL_MS*100);
-    var w=Math.min(100-left,(s1-s0)/TL_MS*100);
-    if(w<0.05) return '';
-    var tip=s.mode+': '+s.start.substring(0,16)+' to '+s.end.substring(0,16)+(s.note?' | '+s.note:'');
-    return '<div class="tl-seg '+modeClass(s.mode)+'" style="left:'+left.toFixed(2)+'%;width:'+Math.max(0.3,w).toFixed(2)+'%" title="'+esc(tip)+'"></div>';
-  }).join('');
-  return '<div class="tl-bar">'+bars+'</div>';
+function buildRuler() {
+  var ruler = document.getElementById('r-ruler');
+  if (!ruler) return;
+  var totalPx = tlTotalPx();
+  ruler.style.width = totalPx + 'px';
+  var now = new Date();
+  var html = '';
+  var cur = new Date(TL_START); cur.setMinutes(0,0,0);
+  var prevDate = -1;
+  while (cur <= TL_END) {
+    var x = tlPx(cur);
+    var isNewDay = cur.getDate() !== prevDate;
+    if (isNewDay) prevDate = cur.getDate();
+    var lbl = '';
+    if (isNewDay) {
+      lbl = cur.toLocaleDateString('en-SG',{weekday:'short',day:'2-digit',month:'short',timeZone:'Asia/Singapore'});
+    } else if (cur.getHours() % 6 === 0) {
+      lbl = cur.getHours().toString().padStart(2,'0')+'h';
+    }
+    html += '<div class="rul-day'+(isNewDay?' rul-ms':'')+'" style="left:'+x.toFixed(1)+'px;width:'+PX_PER_HR+'px">'
+          + (lbl ? '<div class="rul-day-lbl'+(isNewDay?' rul-ms':'')+'">'+esc(lbl)+'</div>' : '')
+          + '</div>';
+    cur = new Date(cur.getTime() + 3600000);
+  }
+  // Now marker on ruler
+  var nowX = tlPx(now);
+  if (nowX > 0 && nowX < totalPx) {
+    html += '<div class="rul-now" style="left:'+nowX.toFixed(1)+'px"></div>';
+  }
+  ruler.innerHTML = html;
+}
+
+function buildNowLine() {
+  var rb = document.getElementById('r-right-body');
+  if (!rb) return;
+  var old = document.getElementById('roster-nowline');
+  if (old) old.remove();
+  var nowX = tlPx(new Date());
+  if (nowX <= 0) return;
+  var div = document.createElement('div');
+  div.id = 'roster-nowline';
+  div.className = 'tl-nowline';
+  div.style.cssText = 'left:'+nowX.toFixed(1)+'px;position:absolute;top:0;bottom:0;width:2px;background:var(--green);pointer-events:none;z-index:10';
+  rb.appendChild(div);
+  // Update ruler now marker
+  var rn = document.querySelector('#r-ruler .rul-now');
+  if (rn) rn.style.left = nowX.toFixed(1)+'px';
+}
+
+function syncRosterScroll(el) {
+  var rw = document.getElementById('r-ruler-wrap');
+  var lb = document.getElementById('r-left-body');
+  if (rw) rw.scrollLeft = el.scrollLeft;
+  if (lb) lb.scrollTop  = el.scrollTop;
 }
 
 function renderRoster() {
@@ -10150,26 +10224,61 @@ function renderRoster() {
   var tm = (document.getElementById('r-team').value || '');
   _rFil = ROSTER_DATA.filter(function(p) {
     if (tm && p.team !== tm) return false;
-    if (q && (p.name||'').toLowerCase().indexOf(q)===-1) return false;
+    if (q && (p.name||'').toLowerCase().indexOf(q) === -1) return false;
     return true;
   });
-  document.getElementById('r-tbody').innerHTML = _rFil.map(function(p,idx) {
-    return '<tr onclick="openDrawer('+idx+')" data-idx="'+idx+'">'
-      +'<td><b>'+esc(p.name)+'</b></td>'
-      +'<td style="font-size:10px;color:var(--txtm)">'+esc(p.location||'')+'</td>'
-      +'<td style="width:55%;min-width:200px">'+miniTimeline(p.segments)+'</td>'
-      +'</tr>';
-  }).join('');
+
+  var totalPx  = tlTotalPx();
+  var leftBody  = document.getElementById('r-left-body');
+  var rightBody = document.getElementById('r-right-body');
+  if (!leftBody || !rightBody) return;
+
+  var leftHtml = '', rightHtml = '';
+  _rFil.forEach(function(p, idx) {
+    leftHtml += '<div class="r-lrow" onclick="openDrawer('+idx+')" data-idx="'+idx+'">'
+      +'<div class="rn">'+esc(p.name)+'</div>'
+      +'<div class="rl">'+esc(p.location||'')+'</div>'
+      +'</div>';
+
+    var segs = p.segments || [];
+    var bars = segs.map(function(s) {
+      var x  = tlPx(s.start);
+      var x2 = tlPx(s.end);
+      var w  = Math.max(2, x2 - x);
+      var tip = s.mode+': '+s.start.substring(0,16)+' \u2192 '+s.end.substring(0,16)+(s.note?' | '+s.note:'');
+      return '<div class="tl-seg '+modeClass(s.mode)+'" style="left:'+x.toFixed(1)+'px;width:'+w.toFixed(1)+'px" title="'+esc(tip)+'"></div>';
+    }).join('');
+
+    rightHtml += '<div class="r-rrow" onclick="openDrawer('+idx+')" data-idx="'+idx+'">'
+      +'<div style="width:'+totalPx+'px;position:relative;height:100%">'+bars+'</div>'
+      +'</div>';
+  });
+
+  leftBody.innerHTML  = leftHtml;
+  rightBody.innerHTML = rightHtml;
+  rightBody.style.cssText = 'position:relative;width:'+totalPx+'px';
+
+  buildRuler();
+  buildNowLine();
+
+  // Auto-scroll to now (centred)
+  var scroll = document.getElementById('r-scroll');
+  if (scroll) {
+    var nowX = tlPx(new Date());
+    scroll.scrollLeft = Math.max(0, nowX - scroll.clientWidth / 2);
+  }
+
   document.getElementById('r-count').textContent = _rFil.length+' of '+ROSTER_DATA.length+' people';
   closeDrawer();
-}
 
+  clearInterval(window._rNowTimer);
+  window._rNowTimer = setInterval(buildNowLine, 60000);
+}
 function openDrawer(idx) {
   var p = _rFil[idx];
   if (!p) return;
-  document.querySelectorAll('.rtable tr.rsel').forEach(function(r){r.classList.remove('rsel');});
-  var rows = document.querySelectorAll('#r-tbody tr');
-  rows.forEach(function(r){if(parseInt(r.getAttribute('data-idx'))===idx) r.classList.add('rsel');});
+  document.querySelectorAll('.r-lrow.rsel,.r-rrow.rsel').forEach(function(r){r.classList.remove('rsel');});
+  document.querySelectorAll('[data-idx="'+idx+'"]').forEach(function(r){r.classList.add('rsel');});
   
   document.getElementById('rd-name').textContent = p.name;
   document.getElementById('rd-meta').textContent = [p.team, p.company, p.location].filter(Boolean).join(' · ');
@@ -10217,7 +10326,7 @@ function openDrawer(idx) {
 
 function closeDrawer() {
   document.getElementById('roster-drawer').classList.remove('open');
-  document.querySelectorAll('.rtable tr.rsel').forEach(function(r){r.classList.remove('rsel');});
+  document.querySelectorAll('.r-lrow.rsel,.r-rrow.rsel').forEach(function(r){r.classList.remove('rsel');});
 }
 
 </script>
